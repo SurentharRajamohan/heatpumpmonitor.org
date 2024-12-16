@@ -1115,137 +1115,119 @@ defined('EMONCMS_EXEC') or die('Restricted access');
                 this.load_system_stats();
             },
             load_system_stats: function () {
-                
-                // Start
-                let start = this.stats_time_start;
-                if (start!='last7' && start!='last30' && start!='last90' && start!='last365' && start!='all') {
-                    // Convert e.g Mar 2023 to 2023-03-01
-                    let months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sept','Oct','Nov','Dec'];
-                    let month = start.split(' ')[0];
-                    let year = start.split(' ')[1];
-                    start = year + '-' + (months.indexOf(month)+1) + '-01';
-                }
+    console.time("load_system_stats(Optimized)");
 
-                // End
-                let end = this.stats_time_end;
-                if (end!='only') {
-                    // Convert e.g Mar 2023 to 2023-03-01
-                    let months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sept','Oct','Nov','Dec'];
-                    let month = end.split(' ')[0];
-                    let year = end.split(' ')[1];
-                    end = year + '-' + (months.indexOf(month)+1) + '-01';
-                } else {
-                    end = start;
-                }
+    // Define month map for quick lookup
+    const monthMap = {
+        'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6, 'Jul': 7, 'Aug': 8, 'Sept': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
+    };
 
-                var url = path+'system/stats';
-                var params = {
-                    start: start,
-                    end: end
-                };
+    // Start
+    let start = this.stats_time_start;
+    if (!['last7', 'last30', 'last90', 'last365', 'all'].includes(start)) {
+        let [month, year] = start.split(' ');
+        start = `${year}-${monthMap[month]}-01`;
+    }
 
-                if (start == 'last7' || start == 'last30' || start == 'last90' || start == 'last365' || start == 'all') {
-                    
-                    url = path+'system/stats/'+start;
-                    params = {};
-                }
-                // Load system/stats data
-                axios.get(url, {
-                        params: params
-                    })
-                    .then(response => {
-                        var stats = response.data;
-                        for (var i = 0; i < app.systems.length; i++) {
-                            let id = app.systems[i].id;
-                            if (stats[id]) {
-                                // copy stats data to system
-                                for (var key in stats[id]) {
-                                    app.systems[i][key] = stats[id][key];
-                                }
+    // End
+    let end = this.stats_time_end;
+    if (end !== 'only') {
+        let [month, year] = end.split(' ');
+        end = `${year}-${monthMap[month]}-01`;
+    } else {
+        end = start;
+    }
 
-                                // for each category
-                                let categories = ['combined','running','space','water'];
-                                for (var z in categories) {
-                                    let category = categories[z];
+    let url = path + 'system/stats';
+    let params = { start, end };
 
-                                    
-                                    if (app.systems[i].floor_area!=null && app.systems[i].floor_area>0) {
-                                        // elec kwh/m2
-                                        let elec_kwh_per_m2 = 1*app.systems[i][category+"_elec_kwh"] / app.systems[i].floor_area;
-                                        elec_kwh_per_m2 = elec_kwh_per_m2.toFixed(columns[category+'_elec_kwh_per_m2']['dp'])*1;
-                                        if (elec_kwh_per_m2===0) elec_kwh_per_m2 = null;
-                                        app.systems[i][category+"_elec_kwh_per_m2"] = elec_kwh_per_m2;
+    const validStartOptions = new Set(['last7', 'last30', 'last90', 'last365', 'all']);
+    if (validStartOptions.has(start)) {
+        url = path + 'system/stats/' + start;
+        params = {};
+    }
 
-                                        // heat kwh/m2
-                                        let heat_kwh_per_m2 = 1*app.systems[i][category+"_heat_kwh"] / app.systems[i].floor_area;
-                                        heat_kwh_per_m2 = heat_kwh_per_m2.toFixed(columns[category+'_elec_kwh_per_m2']['dp'])*1;
-                                        if (heat_kwh_per_m2===0) heat_kwh_per_m2 = null;
-                                        app.systems[i][category+"_heat_kwh_per_m2"] = heat_kwh_per_m2;
-                                    } else {
-                                        app.systems[i][category+"_elec_kwh_per_m2"] = null;
-                                        app.systems[i][category+"_heat_kwh_per_m2"] = null;
-                                    }
-                                }
+    // Load system/stats data
+    axios.get(url, { params })
+        .then(response => {
+            var stats = response.data;
+            // Iterate over systems
+            for (let i = 0; i < app.systems.length; i++) {
+                let system = app.systems[i];
+                let id = system.id;
 
-                                // Auto flag air errors if error_air_kwh / combined_elec_kwh > 0.1
-                                if (app.systems[i].error_air_kwh!=null && app.systems[i].error_air_kwh>0) {
-                                    if (app.systems[i].combined_elec_kwh!=null && app.systems[i].combined_elec_kwh>0) {
+                // Check if stats exist for system
+                if (stats[id]) {
+                    // Copy stats data to system
+                    Object.assign(system, stats[id]);
 
-                                        let prc = (app.systems[i].error_air_kwh / app.systems[i].combined_elec_kwh * 100).toFixed(1);
+                    // Process categories directly
+                    const categories = ['combined', 'running', 'space', 'water'];
+                    categories.forEach(category => {
+                        if (system.floor_area && system.floor_area > 0) {
+                            // elec kwh/m2
+                            system[category + "_elec_kwh_per_m2"] = (system[category + "_elec_kwh"] / system.floor_area).toFixed(columns[category + '_elec_kwh_per_m2']['dp']) || null;
 
-                                        let electric_not_including_air_error = app.systems[i].combined_elec_kwh - app.systems[i].error_air_kwh;
-                                        let cop_not_including_air_error = 0;
-                                        if (electric_not_including_air_error>0) {
-                                            cop_not_including_air_error = app.systems[i].combined_heat_kwh / electric_not_including_air_error;
-                                        }
-                                        let difference = app.systems[i].combined_cop - cop_not_including_air_error;
-                                        // abs difference
-                                        let abs_difference = Math.abs(difference);
+                            // heat kwh/m2
+                            system[category + "_heat_kwh_per_m2"] = (system[category + "_heat_kwh"] / system.floor_area).toFixed(columns[category + '_elec_kwh_per_m2']['dp']) || null;
+                        } else {
+                            system[category + "_elec_kwh_per_m2"] = null;
+                            system[category + "_heat_kwh_per_m2"] = null;
+                        }
+                    });
 
-                                        if (abs_difference > 0.125) {
-
-                                            let note = 'Heat meter air error\n';
-                                            note += (app.systems[i].error_air / 3600).toFixed(0) + " hours, ";
-                                            note += (app.systems[i].error_air_kwh).toFixed(0) + " kWh electric\n";
-                                            note += "% of electric consumption: " + prc + "%\n";
-                                            note += "COP listed: " + app.systems[i].combined_cop.toFixed(2) + "\n";
-                                            note += "COP not including air error: " + cop_not_including_air_error.toFixed(2)+"\n";
-                                            note += "Difference: " + difference.toFixed(2);
-
-                                            app.systems[i].data_flag = 1;
-                                            app.systems[i].data_flag_note = note;
-
-                                        }
-                                    }
-                                }
-
-                                let prc_demand_hot_water = null;
-                                if (app.systems[i]['water_heat_kwh']>0 && app.systems[i]['space_heat_kwh']>0) {
-                                    prc_demand_hot_water = app.systems[i]['water_heat_kwh'] / (app.systems[i]['water_heat_kwh'] + app.systems[i]['space_heat_kwh']) * 100;
-                                }
-                                app.systems[i]['prc_demand_hot_water'] = prc_demand_hot_water;      
-
-                            } else {
-                                // for (var col in stats_columns) {
-                                //    app.systems[i][stats_columns[col]] = 0;
-                                // }
-                                app.systems[i]['combined_cop'] = 0;
-                                app.systems[i]['combined_data_length'] = 0;
+                    // Flag air errors if conditions are met
+                    if (system.error_air_kwh && system.error_air_kwh > 0 && system.combined_elec_kwh && system.combined_elec_kwh > 0) {
+                        const prc = (system.error_air_kwh / system.combined_elec_kwh * 100).toFixed(1);
+                        let electric_not_including_air_error = system.combined_elec_kwh - system.error_air_kwh;
+                        if (electric_not_including_air_error > 0) {
+                            const cop_not_including_air_error = system.combined_heat_kwh / electric_not_including_air_error;
+                            const difference = Math.abs(system.combined_cop - cop_not_including_air_error);
+                            if (difference > 0.125) {
+                                system.data_flag = 1;
+                                system.data_flag_note = generateErrorNote(system, prc, cop_not_including_air_error, difference);
                             }
                         }
+                    }
 
-                        app.tariff_calc();
+                    // Calculate hot water demand percentage
+                    if (system['water_heat_kwh'] > 0 && system['space_heat_kwh'] > 0) {
+                        system['prc_demand_hot_water'] = (system['water_heat_kwh'] / (system['water_heat_kwh'] + system['space_heat_kwh']) * 100);
+                    } else {
+                        system['prc_demand_hot_water'] = null;
+                    }
 
-                        // sort
-                        app.sort_only(app.currentSortColumn);
+                } else {
+                    // Handle missing stats
+                    system['combined_cop'] = 0;
+                    system['combined_data_length'] = 0;
+                }
+            }
 
-                        app.filter_systems();
-                        
-                    })
-                    .catch(error => {
-                        alert("Error loading data: " + error);
-                    });
-            },
+            app.tariff_calc();
+
+            // Sort and filter data
+            app.sort_only(app.currentSortColumn);
+            app.filter_systems();
+
+            console.timeEnd("load_system_stats(Optimized)");
+        })
+        .catch(error => {
+            alert("Error loading data: " + error);
+            console.timeEnd("load_system_stats(Optimized)");
+        });
+
+    // Function to generate error note
+    function generateErrorNote(system, prc, cop_not_including_air_error, difference) {
+        return `Heat meter air error\nHours: ${(system.error_air / 3600).toFixed(0)} hours\n` +
+            `kWh electric: ${system.error_air_kwh.toFixed(0)} kWh\n` +
+            `% of electric consumption: ${prc}%\n` +
+            `COP listed: ${system.combined_cop.toFixed(2)}\n` +
+            `COP without air error: ${cop_not_including_air_error.toFixed(2)}\n` +
+            `Difference: ${difference.toFixed(2)}`;
+    }
+},
+
             toggle_chart: function() {
                 this.chart_enable = !this.chart_enable;
 
