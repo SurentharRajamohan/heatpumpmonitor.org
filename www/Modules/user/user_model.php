@@ -46,7 +46,11 @@ class User
             );
         }
 
-        session_start();
+        // Start the session with 1-hour expiration and regenerate session ID
+        session_start([
+            'cookie_lifetime' => 3600 // 1 hour expiration
+        ]);
+        session_regenerate_id(true); // Regenerate session ID to prevent fixation
 
         // If no session, check for remember me cookie
         if (!isset($_SESSION['userid']) || !$_SESSION['userid']) {
@@ -72,12 +76,24 @@ class User
 
     public function create_session($userid) {
         $userid = (int) $userid;
-        $result = $this->mysqli->query("SELECT id,username,email,admin FROM users WHERE id='$userid'");
+        // Use a prepared statement to safely fetch the user data
+        $stmt = $this->mysqli->prepare("SELECT id, username, email, admin FROM users WHERE id = ?");
+        if (!$stmt) {
+            return false;
+        }
+
+        // Bind the parameter to the prepared statement
+        $stmt->bind_param('i', $userid);
+
+        // Execute the query
+        $stmt->execute();
+        $result = $stmt->get_result();        
         if ($result->num_rows == 0) {
             return false;
         } else {
             $row = $result->fetch_object();
-            session_regenerate_id();
+            // Regenerate session ID for security to prevent session fixation attacks
+            session_regenerate_id(true);
             $_SESSION['userid'] = $row->id;
             $_SESSION['username'] = $row->username;
             $_SESSION['admin'] = $row->admin;
