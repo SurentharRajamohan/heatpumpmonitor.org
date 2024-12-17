@@ -181,46 +181,71 @@ foreach ($data as $row) {
             }
 
             foreach ($periods as $period) {
-                if ($sum_kwh[$period]>0) {
-                    $unit_cost_agile = $sum_cost_agile[$period]/$sum_kwh[$period];
-                    $unit_cost_agile_vat = $unit_cost_agile*1.05*100;
-
-                    $unit_cost_cosy = $sum_cost_cosy[$period]/$sum_kwh[$period]*100;
-
-                    $unit_cost_go = $sum_cost_go[$period]/$sum_kwh[$period]*100;
-
-                    print "$period Agile: £".number_format($sum_cost_agile[$period],2).", ".number_format($sum_kwh[$period],2)." kWh, ".number_format($unit_cost_agile_vat,3)." p/kWh\n";
-                    print "$period Cosy: £".number_format($sum_cost_cosy[$period],2).", ".number_format($sum_kwh[$period],2)." kWh, ".number_format($unit_cost_cosy,3)." p/kWh\n";                    
-                    print "$period Go: £".number_format($sum_cost_go[$period],2).", ".number_format($sum_kwh[$period],2)." kWh, ".number_format($unit_cost_go,3)." p/kWh\n";
-
-                    $mysqli->query("UPDATE system_stats_".$period."_v2 SET `unit_rate_agile` = '$unit_cost_agile_vat' WHERE `id` = $systemid");
-                    $mysqli->query("UPDATE system_stats_".$period."_v2 SET `unit_rate_cosy` = '$unit_cost_cosy' WHERE `id` = $systemid");
-                    $mysqli->query("UPDATE system_stats_".$period."_v2 SET `unit_rate_go` = '$unit_cost_go' WHERE `id` = $systemid");
-
+                if ($sum_kwh[$period] > 0) {
+                    $unit_cost_agile = $sum_cost_agile[$period] / $sum_kwh[$period];
+                    $unit_cost_agile_vat = $unit_cost_agile * 1.05 * 100;
+            
+                    $unit_cost_cosy = $sum_cost_cosy[$period] / $sum_kwh[$period] * 100;
+                    $unit_cost_go = $sum_cost_go[$period] / $sum_kwh[$period] * 100;
+            
+                    print "$period Agile: £" . number_format($sum_cost_agile[$period], 2) . ", " . number_format($sum_kwh[$period], 2) . " kWh, " . number_format($unit_cost_agile_vat, 3) . " p/kWh\n";
+                    print "$period Cosy: £" . number_format($sum_cost_cosy[$period], 2) . ", " . number_format($sum_kwh[$period], 2) . " kWh, " . number_format($unit_cost_cosy, 3) . " p/kWh\n";
+                    print "$period Go: £" . number_format($sum_cost_go[$period], 2) . ", " . number_format($sum_kwh[$period], 2) . " kWh, " . number_format($unit_cost_go, 3) . " p/kWh\n";
+            
+                    $stmt = $mysqli->prepare("UPDATE system_stats_".$period."_v2 SET 
+                        `unit_rate_agile` = ?, 
+                        `unit_rate_cosy` = ?, 
+                        `unit_rate_go` = ? 
+                        WHERE `id` = ?");
+                    $stmt->bind_param('dddi', $unit_cost_agile_vat, $unit_cost_cosy, $unit_cost_go, $systemid);
+            
+                    if ($stmt->execute()) {
+                    } else {
+                        echo "Error executing query: " . $stmt->error;
+                    }
+            
+                    $stmt->close();
                 }
             }
 
             // Monthly data
             foreach ($months_kwh as $month => $kwh) {
-                if ($kwh>0) {
-                    $unit_cost_agile = $months_agile_cost[$month]/$kwh;
-                    $unit_cost_agile_vat = $unit_cost_agile*1.05*100;
-
-                    $unit_cost_cosy = $months_cosy_cost[$month]/$kwh*100;
-
-                    $unit_cost_go = $months_go_cost[$month]/$kwh*100;
-
+                if ($kwh > 0) {
+                    $unit_cost_agile = $months_agile_cost[$month] / $kwh;
+                    $unit_cost_agile_vat = $unit_cost_agile * 1.05 * 100;
+            
+                    $unit_cost_cosy = $months_cosy_cost[$month] / $kwh * 100;
+                    $unit_cost_go = $months_go_cost[$month] / $kwh * 100;
+            
                     $date->setTimestamp($month);
                     $monthstr = $date->format('M Y');
-
-                    print "$monthstr Agile: £".number_format($months_agile_cost[$month],2).", ".number_format($kwh,2)." kWh, ".number_format($unit_cost_agile_vat,3)." p/kWh\n";
-                    print "$monthstr Cosy: £".number_format($months_cosy_cost[$month],2).", ".number_format($kwh,2)." kWh, ".number_format($unit_cost_cosy,3)." p/kWh\n";
-                    print "$monthstr Go: £".number_format($months_go_cost[$month],2).", ".number_format($kwh,2)." kWh, ".number_format($unit_cost_go,3)." p/kWh\n";
-
-                    $mysqli->query("UPDATE system_stats_monthly_v2 SET `unit_rate_agile` = '$unit_cost_agile_vat' WHERE `id` = $systemid AND `timestamp` = $month");
-                    $mysqli->query("UPDATE system_stats_monthly_v2 SET `unit_rate_cosy` = '$unit_cost_cosy' WHERE `id` = $systemid AND `timestamp` = $month");
-                    $mysqli->query("UPDATE system_stats_monthly_v2 SET `unit_rate_go` = '$unit_cost_go' WHERE `id` = $systemid AND `timestamp` = $month");
-
+            
+                    print "$monthstr Agile: £" . number_format($months_agile_cost[$month], 2) . ", " . number_format($kwh, 2) . " kWh, " . number_format($unit_cost_agile_vat, 3) . " p/kWh\n";
+                    print "$monthstr Cosy: £" . number_format($months_cosy_cost[$month], 2) . ", " . number_format($kwh, 2) . " kWh, " . number_format($unit_cost_cosy, 3) . " p/kWh\n";
+                    print "$monthstr Go: £" . number_format($months_go_cost[$month], 2) . ", " . number_format($kwh, 2) . " kWh, " . number_format($unit_cost_go, 3) . " p/kWh\n";
+            
+                    $mysqli->begin_transaction();
+            
+                    try {
+                        $stmt = $mysqli->prepare("UPDATE system_stats_monthly_v2 SET 
+                            `unit_rate_agile` = ?, 
+                            `unit_rate_cosy` = ?, 
+                            `unit_rate_go` = ? 
+                            WHERE `id` = ? AND `timestamp` = ?");
+            
+                        $stmt->bind_param('dddis', $unit_cost_agile_vat, $unit_cost_cosy, $unit_cost_go, $systemid, $month);
+                        
+                        if ($stmt->execute()) {
+                        } else {
+                            echo "Error executing query: " . $stmt->error;
+                        }
+            
+                        $stmt->close();
+                        $mysqli->commit();
+                    } catch (Exception $e) {
+                        $mysqli->rollback();
+                        echo "Error: " . $e->getMessage();
+                    }
                 }
             }
 

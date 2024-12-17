@@ -137,13 +137,27 @@ function load_daily_stats_system($meta, $reload) {
     $start = $data_start;
 
     if ($reload !== false) {
-        $mysqli->query("DELETE FROM system_stats_daily WHERE `id`='$systemid'");
-        $mysqli->query("DELETE FROM system_stats_all_v2 WHERE `id`='$systemid'");
-        $mysqli->query("DELETE FROM system_stats_last365_v2 WHERE `id`='$systemid'");
-        $mysqli->query("DELETE FROM system_stats_last90_v2 WHERE `id`='$systemid'");
-        $mysqli->query("DELETE FROM system_stats_last30_v2 WHERE `id`='$systemid'");
-        $mysqli->query("DELETE FROM system_stats_last7_v2 WHERE `id`='$systemid'");
-        $mysqli->query("DELETE FROM system_stats_monthly_v2 WHERE `id`='$systemid'");
+        $mysqli->begin_transaction();
+        try {
+            $tables = [
+                'system_stats_daily',
+                'system_stats_all_v2',
+                'system_stats_last365_v2',
+                'system_stats_last90_v2',
+                'system_stats_last30_v2',
+                'system_stats_last7_v2',
+                'system_stats_monthly_v2'
+            ];
+    
+            foreach ($tables as $table) {
+                $mysqli->query("DELETE FROM $table WHERE `id`='$systemid'");
+            }
+    
+            $mysqli->commit();
+        } catch (Exception $e) {
+            $mysqli->rollback();
+            throw $e;
+        }
     }
 
     for ($x=0; $x<200; $x++) {
