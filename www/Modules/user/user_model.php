@@ -132,7 +132,22 @@ class User
         $email = $user_get->email;
 
         // Check if emoncmsorg link exists
-        $result = $this->mysqli->query("SELECT userid FROM emoncmsorg_link WHERE emoncmsorg_userid='$emoncmsorg_userid'");
+        // Prepare the SQL statement
+        $stmt = $this->mysqli->prepare("SELECT userid FROM emoncmsorg_link WHERE emoncmsorg_userid = ?");
+        
+        if ($stmt === false) {
+            // Handle prepare error
+            return false;
+        }
+        
+        // Bind the parameter
+        $stmt->bind_param('s', $emoncmsorg_userid); // 's' indicates the parameter is a string
+        
+        // Execute the query
+        $stmt->execute();
+        
+        // Get the result
+        $result = $stmt->get_result();
         if ($result->num_rows == 0) {
             // Create new user fetch userid
             $stmt = $this->mysqli->prepare("INSERT INTO users (username, email, admin) VALUES (?, ?, 0)");
@@ -152,7 +167,22 @@ class User
         }
 
         // Check that the userid exists
-        $result = $this->mysqli->query("SELECT admin FROM users WHERE id='$userid'");
+        // Prepare the SQL statement
+        $stmt = $this->mysqli->prepare("SELECT admin FROM users WHERE id = ?");
+        
+        if ($stmt === false) {
+            // Handle prepare error
+            return false;
+        }
+        
+        // Bind the parameter
+        $stmt->bind_param('i', $userid); // 'i' indicates the parameter is an integer
+        
+        // Execute the query
+        $stmt->execute();
+        
+        // Get the result
+        $result = $stmt->get_result();
         if ($result->num_rows == 0) {
             return array('success' => false, 'message' => _("User does not exist in users table"));
         } else {
@@ -195,20 +225,42 @@ class User
             return array('success' => false, 'message' => _("Username does not exist"));
         }
 
+        // Rate-limiting logic based on IP address
+        $ip_address = $_SERVER['REMOTE_ADDR'];
+        $login_attempts = $this->get_login_attempts($ip_address);
+
+        if ($login_attempts >= 5) {
+            return ['success' => false, 'message' => _('Too many login attempts. Please try again later.')];
+        }
+
         // Login using emoncms.org if emoncmsorg link exists
         if ($this->emoncmsorg_link_exists($userid)) {
             return $this->login_using_emoncmsorg($username, $password);
         }
 
-        $result = $this->mysqli->query("SELECT * FROM users WHERE id = '$userid'");
+        // Prepare the SQL statement
+        $stmt = $this->mysqli->prepare("SELECT * FROM users WHERE id = ?");
+        
+        if ($stmt === false) {
+            // Handle prepare error
+            return false;
+        }
+        
+        // Bind the parameter (userid is an integer)
+        $stmt->bind_param('i', $userid); // 'i' indicates the parameter is an integer
+        
+        // Execute the query
+        $stmt->execute();
+        
+        // Get the result
+        $result = $stmt->get_result();
         if (!$result) return array('success' => false, 'message' => _("Database error"));
         $userData = $result->fetch_object();
         
         if ($this->email_verification && isset($userData->email_verified) && !$userData->email_verified) return array('success' => false, 'message' => _("Please verify email address"));
 
-        $hash = hash('sha256', $userData->salt . hash('sha256', $password));
-
-        if ($hash != $userData->hash) {
+        if (!password_verify($password, $userData->hash)) {
+            $this->log_failed_attempt($ip_address); // Log failed attempt
             return array('success' => false, 'message' => _("Incorrect password"));
         } else {
             session_regenerate_id();
@@ -247,9 +299,7 @@ class User
         if (strlen($username) < 3 || strlen($username) > 30) return array('success'=>false, 'message'=>_("Username length error"));
         if (strlen($password) < 4 || strlen($password) > 250) return array('success'=>false, 'message'=>_("Password length error"));
         
-        $hash = hash('sha256', $password);
-        $salt = generate_secure_key(16);
-        $hash = hash('sha256', $salt . $hash);
+        $hash = password_hash($password, PASSWORD_DEFAULT);
 
         $created = time();
         $stmt = $this->mysqli->prepare("INSERT INTO users ( username, hash, email, salt, created, admin) VALUES (?,?,?,?,?,0)");
@@ -463,19 +513,37 @@ class User
     public function get($userid)
     {
         $userid = (int) $userid;
-        $result = $this->mysqli->query("SELECT id,username,email FROM users WHERE id='$userid'");
+        if ($userid <= 0) {
+            return ['success' => false, 'message' => 'Invalid user ID.'];
+        }
+    
+        // Use a prepared statement to avoid SQL injection
+        $stmt = $this->mysqli->prepare("SELECT id, username, email FROM users WHERE id = ?");
+        if (!$stmt) {
+            return false;
+        }
+    
+        $stmt->bind_param('i', $userid);
+        $stmt->execute();
+        $result = $stmt->get_result();
+
         if ($result->num_rows == 0) {
             return false;
         } else {
             $row = $result->fetch_object();
 
-            // check if emoncmsorg link exists
-            $result = $this->mysqli->query("SELECT emoncmsorg_userid FROM emoncmsorg_link WHERE userid='$userid'");
-            if ($result->num_rows > 0) {
-                $row->emoncmsorg_link = true;
-            } else {
-                $row->emoncmsorg_link = false;
+            // Check if emoncmsorg link exists
+            $stmt = $this->mysqli->prepare("SELECT emoncmsorg_userid FROM emoncmsorg_link WHERE userid = ?");
+            if (!$stmt) {
+                return false;
             }
+
+            $stmt->bind_param('i', $userid);
+            $stmt->execute();
+            $result = $stmt->get_result();
+
+            // Add the emoncmsorg_link property to the user object
+            $row->emoncmsorg_link = $result->num_rows > 0;
 
             return $row;
         }
@@ -485,7 +553,22 @@ class User
     public function emoncmsorg_link_exists($userid)
     {
         $userid = (int) $userid;
-        $result = $this->mysqli->query("SELECT emoncmsorg_userid FROM emoncmsorg_link WHERE userid='$userid'");
+        // Prepare the SQL statement
+        $stmt = $this->mysqli->prepare("SELECT emoncmsorg_userid FROM emoncmsorg_link WHERE userid = ?");
+            
+        if ($stmt === false) {
+            // Handle prepare error
+            return false;
+        }
+
+        // Bind the parameter (userid is an integer)
+        $stmt->bind_param('i', $userid); // 'i' indicates the parameter is an integer
+
+        // Execute the query
+        $stmt->execute();
+
+        // Get the result
+        $result = $stmt->get_result();        
         if ($result->num_rows > 0) {
             return true;
         } else {
@@ -496,7 +579,22 @@ class User
     // Get emoncmsorg userid
     public function get_emoncmsorg_userid($userid) {
         $userid = (int) $userid;
-        $result = $this->mysqli->query("SELECT emoncmsorg_userid FROM emoncmsorg_link WHERE userid='$userid'");
+        // Prepare the SQL statement with a placeholder for the userid
+        $stmt = $this->mysqli->prepare("SELECT emoncmsorg_userid FROM emoncmsorg_link WHERE userid = ?");
+            
+        if ($stmt === false) {
+            // Handle error if the statement preparation fails
+            return false;
+        }
+
+        // Bind the parameter. 'i' means the parameter is an integer (userid is expected to be an integer).
+        $stmt->bind_param('i', $userid);
+
+        // Execute the query
+        $stmt->execute();
+
+        // Get the result of the query
+        $result = $stmt->get_result();        
         if ($result->num_rows > 0) {
             $row = $result->fetch_object();
             return $row->emoncmsorg_userid;
@@ -519,7 +617,22 @@ class User
             $row->id = (int) $row->id;
 
             // Count number of systems in system_meta
-            $result2 = $this->mysqli->query("SELECT id FROM system_meta WHERE userid='$row->id'");
+            // Prepare the SQL statement with a placeholder for the userid
+            $stmt = $this->mysqli->prepare("SELECT id FROM system_meta WHERE userid = ?");
+                
+            if ($stmt === false) {
+                // Handle error if the statement preparation fails
+                return false;
+            }
+
+            // Bind the parameter. 'i' means the parameter is an integer (userid is expected to be an integer).
+            $stmt->bind_param('i', $userid);
+
+            // Execute the query
+            $stmt->execute();
+
+            // Get the result of the query
+            $result2 = $stmt->get_result();            
             $row->systems = $result2->num_rows;
 
 
@@ -531,7 +644,22 @@ class User
 
     public function admin_switch_user($userid) {
         $userid = (int) $userid;
-        $result = $this->mysqli->query("SELECT id,username,email FROM users WHERE id='$userid'");
+        // Prepare the SQL statement with a placeholder for the user ID
+        $stmt = $this->mysqli->prepare("SELECT id, username, email FROM users WHERE id = ?");
+            
+        if ($stmt === false) {
+            // Handle error if the statement preparation fails
+            return false;
+        }
+
+        // Bind the parameter. 'i' means the parameter is an integer (userid is expected to be an integer)
+        $stmt->bind_param('i', $userid);
+
+        // Execute the query
+        $stmt->execute();
+
+        // Get the result of the query
+        $result = $stmt->get_result();        
         if ($result->num_rows == 0) {
             return false;
         } else {
@@ -549,12 +677,43 @@ class User
         $userid = (int) $userid;
 
         // check if the user has system first and if so return error
-        $result = $this->mysqli->query("SELECT id FROM system_meta WHERE userid='$userid'");
+        // Prepare the SQL statement with a placeholder for the user ID
+        $stmt = $this->mysqli->prepare("SELECT id FROM system_meta WHERE userid = ?");
+
+        if ($stmt === false) {
+            // Handle error if the statement preparation fails
+            return false;
+        }
+
+        // Bind the parameter. 'i' means the parameter is an integer (userid is expected to be an integer)
+        $stmt->bind_param('i', $userid);
+
+        // Execute the query
+        $stmt->execute();
+
+        // Get the result of the query
+        $result = $stmt->get_result();        
+        
         if ($result->num_rows > 0) {
             return array('success'=>false, 'message'=>"User has $result->num_rows systems, cannot delete");
         }
 
-        $result = $this->mysqli->query("SELECT id,username,email FROM users WHERE id='$userid'");
+        // Prepare the SQL statement with a placeholder for the user ID
+        $stmt = $this->mysqli->prepare("SELECT id, username, email FROM users WHERE id = ?");
+
+        if ($stmt === false) {
+            // Handle error if the statement preparation fails
+            return false;
+        }
+
+        // Bind the parameter. 'i' means the parameter is an integer (userid is expected to be an integer)
+        $stmt->bind_param('i', $userid);
+
+        // Execute the query
+        $stmt->execute();
+
+        // Get the result of the query
+        $result = $stmt->get_result();        
         if ($result->num_rows == 0) {
             return array('success'=>false, 'message'=>"User does not exist");
         } else {
